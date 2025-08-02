@@ -5,3 +5,5 @@
 azure-functions
 requests
 python-dotenv
+pandas
+azure-storage-blob==12.26.0
