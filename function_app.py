@@ -59,13 +59,88 @@ def get_request(id: int) -> dict:
     return response.json()
 
 def get_pokemons( type: str ) -> dict:
-    pokeapi_url = f"https://pokeapi.co/api/v2/type/{type}"
+    try:
+        pokeapi_url = f"https://pokeapi.co/api/v2/type/{type}"
+        response = requests.get(pokeapi_url, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        pokemon_entries = data.get('pokemon', [])
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error al obtener datos del tipo {type}: {e}")
+        return []
 
-    response = requests.get(pokeapi_url, timeout=3000)
-    data = response.json()
-    pokemon_entries = data.get('pokemon', [])
+    all_pokemon_data = []
+    total_pokemon = len(pokemon_entries)
+    logger.info(f"Procesando {total_pokemon} Pokemon del tipo {type}")
 
-    return [ p['pokemon'] for p in pokemon_entries ]
+    for pokemon in pokemon_entries:
+        pokemon_dict = {
+            'name': pokemon['pokemon']['name'],
+            'url': pokemon['pokemon']['url']
+        }
+        url = pokemon['pokemon']['url']
+
+        #Recorremos la URL
+        try:
+            response = requests.get(url, timeout=120)
+            response.raise_for_status()
+            data_pokemon = response.json()
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Error al obtener datos del Pokemon {pokemon.get('pokemon', {}).get('name')}: {e}")
+            continue
+        except Exception as e:
+            logger.warning(f"Error inesperado procesando Pokemon {pokemon.get('pokemon', {}).get('name')}: {e}")
+            continue
+
+        #info basica
+        height = data_pokemon.get('height')
+        weight = data_pokemon.get('weight')
+
+        #types
+        data_types = data_pokemon.get('types', [])
+        data_types_type_name = [item.get('type', {}).get('name') for item in data_types if isinstance(item, dict)]
+        
+        #stats
+        data_stats = data_pokemon.get('stats', [])
+        data_stats_stat_name = [item.get('stat', {}).get('name') for item in data_stats if isinstance(item, dict)]
+        data_stats_stat_base = [item.get('base_stat') for item in data_stats if isinstance(item, dict)]
+        stats_dict = {data_stats_stat_name[i]: data_stats_stat_base[i] for i in range(len(data_stats_stat_name))}
+
+        #abilities
+        data_abilities = data_pokemon.get('abilities', [])
+        data_abilities_ability_name = [item.get('ability', {}).get('name') for item in data_abilities if isinstance(item, dict)]
+
+        pokemon_dict.update({
+            'height (dm)': height,
+            'weight (hg)': weight,
+            'sprite': data_pokemon.get('sprites', {}).get('front_default'),
+            'generation': get_pokemon_generation(data_pokemon.get('species', {}).get('url')),
+            'types': ", ".join(data_types_type_name)
+        })        
+        pokemon_dict.update(stats_dict)        
+        pokemon_dict.update({
+            'abilities': ", ".join(data_abilities_ability_name)
+        })
+
+        all_pokemon_data.append(pokemon_dict)
+
+    logger.info(f"Completado: obtenidos datos de {len(all_pokemon_data)} de {total_pokemon} Pokemon {type}")
+    return all_pokemon_data
+
+def get_pokemon_generation(url: str) -> str:
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        return data.get('generation', {}).get('name') or ''
+    
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Error al obtener generación desde {url}: {e}")
+        return ''
+    except Exception as e:
+        logger.warning(f"Error inesperado obteniendo generación: {e}")
+        return ''
 
 def generate_csv_to_blob( pokemon_list: list ) -> bytes:
     df = pd.DataFrame( pokemon_list )
